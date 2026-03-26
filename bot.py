@@ -26,7 +26,7 @@ async def start_cmd(message: types.Message):
         conn.commit()
     conn.close()
 
-    webapp_url = f"https://olympus-tap.pages.dev/?user_id={user_id}"
+    webapp_url = f"https://olympus-tap.onrender.com/?user_id={user_id}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Открыть игру", web_app=types.WebAppInfo(url=webapp_url))]
     ])
