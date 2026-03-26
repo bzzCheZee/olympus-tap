@@ -1,0 +1,173 @@
+BO<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Olympus Tap</title>
+    <style>
+        /* (стили такие же, как в предыдущем примере — для краткости опускаем, но можно вставить полные) */
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body { background: linear-gradient(145deg, #0a0f1e, #0e1a2a); font-family: system-ui; color: #fff; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 16px; }
+        .app { max-width: 450px; width: 100%; background: rgba(0,0,0,0.3); border-radius: 32px; backdrop-filter: blur(8px); padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: #1e2a36; padding: 12px 16px; border-radius: 48px; }
+        .balance, .energy { font-weight: bold; font-size: 1.3rem; }
+        .balance span, .energy span { font-size: 0.8rem; color: #aaa; }
+        .tap-area { text-align: center; margin: 20px 0; cursor: pointer; }
+        .tap-img { width: 220px; height: 220px; background: radial-gradient(circle, #f5b04220, #d4af3740); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 8rem; margin: 0 auto; box-shadow: 0 0 30px rgba(212,175,55,0.5); transition: 0.05s linear; }
+        .stats { display: flex; justify-content: space-between; background: #0f1822; border-radius: 28px; padding: 12px; margin: 15px 0; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; color: #ffd966; }
+        .nav { display: flex; gap: 10px; margin-top: 20px; }
+        .nav-btn { flex: 1; background: #2a3a44; border: none; padding: 10px; border-radius: 40px; color: white; font-weight: bold; cursor: pointer; }
+        .nav-btn.active { background: #d4af37; color: #0a0c0f; }
+        .panel { background: #0f1822; border-radius: 28px; padding: 16px; margin-top: 15px; display: none; }
+        .panel.active-panel { display: block; }
+        .upgrade-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #2a3a44; }
+        .buy-btn { background: #d4af37; border: none; padding: 4px 12px; border-radius: 40px; cursor: pointer; font-weight: bold; }
+        .leaderboard-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #2a3a44; }
+        .convert-input { background: #1e2c34; border: 1px solid #d4af37; padding: 8px; border-radius: 40px; width: 100%; margin: 10px 0; color: white; text-align: center; }
+        .message { color: #ffaa66; font-size: 0.8rem; margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="app" id="app">
+    <div class="header">
+        <div class="balance"><span>⚡ ОЧКИ</span><br><span id="points">0</span></div>
+        <div class="energy"><span>🔋 ЭНЕРГИЯ</span><br><span id="energy">100</span> / <span id="maxEnergy">100</span></div>
+    </div>
+    <div class="tap-area" id="tapArea"><div class="tap-img" id="tapImage">⚡</div></div>
+    <div class="stats">
+        <div class="stat"><div class="stat-value" id="tapPower">1</div><div>💪 сила тапа</div></div>
+        <div class="stat"><div class="stat-value" id="regenRate">5</div><div>⏫ реген/мин</div></div>
+        <div class="stat"><div class="stat-value" id="oscBalance">0</div><div>🪙 OSC</div></div>
+    </div>
+    <div class="nav">
+        <button class="nav-btn" data-panel="main">🏛️ Главная</button>
+        <button class="nav-btn" data-panel="upgrades">🛒 Улучшения</button>
+        <button class="nav-btn" data-panel="leaderboard">🏆 Топ</button>
+        <button class="nav-btn" data-panel="convert">💱 Обмен</button>
+    </div>
+    <div id="panel-main" class="panel active-panel"><p style="text-align:center;">🔨 Тапай по Олимпусу, получай очки и улучшай героя!</p></div>
+    <div id="panel-upgrades" class="panel"><div id="upgradesList"></div></div>
+    <div id="panel-leaderboard" class="panel"><div id="leaderboardList"></div></div>
+    <div id="panel-convert" class="panel">
+        <p style="color:#ffaa66; text-align:center;">🔒 Скоро</p>
+        <button id="convertBtn" class="nav-btn" style="background:#d4af37;" disabled>Обмен временно закрыт</button>
+        <div id="convertMessage" class="message"></div>
+    </div>
+</div>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+    let tg = window.Telegram.WebApp;
+    tg.expand();
+    let userId = tg.initDataUnsafe?.user?.id;
+    if (!userId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        userId = urlParams.get('user_id');
+    }
+    if (!userId) alert("Ошибка: не удалось определить пользователя");
+
+    let userData = null;
+    const apiBase = "https://olympus-tap.onrender.com/api";
+
+    async function fetchAPI(endpoint, method='GET', body=null) {
+        const options = { method, headers: {'Content-Type':'application/json'} };
+        if (body) options.body = JSON.stringify(body);
+        const url = `${apiBase}${endpoint}?user_id=${userId}`;
+        const res = await fetch(url);
+        return await res.json();
+    }
+
+    async function loadUser() {
+        const data = await fetchAPI('/user');
+        userData = data;
+        updateUI();
+    }
+
+    function updateUI() {
+        if (!userData) return;
+        document.getElementById('points').innerText = userData.points;
+        document.getElementById('energy').innerText = userData.energy;
+        document.getElementById('maxEnergy').innerText = userData.max_energy;
+        document.getElementById('tapPower').innerText = userData.tap_power;
+        document.getElementById('regenRate').innerText = userData.energy_regen_rate;
+        document.getElementById('oscBalance').innerText = userData.osc_balance.toFixed(4);
+    }
+
+    async function tap() {
+        if (!userData || userData.energy < 1) {
+            tg.showAlert("Недостаточно энергии!");
+            return;
+        }
+        const result = await fetchAPI('/tap', 'POST', {});
+        if (result.success) {
+            userData = result.user;
+            updateUI();
+            const img = document.getElementById('tapImage');
+            img.style.transform = 'scale(0.9)';
+            setTimeout(() => img.style.transform = '', 100);
+        } else {
+            tg.showAlert(result.error || "Ошибка");
+        }
+    }
+
+    async function buyUpgrade(upgradeId) {
+        const result = await fetchAPI('/buy', 'POST', { upgrade_id: upgradeId });
+        if (result.success) {
+            userData = result.user;
+            updateUI();
+            loadUpgrades();
+            tg.showAlert("Улучшение куплено!");
+        } else {
+            tg.showAlert(result.error || "Не хватает очков");
+        }
+    }
+
+    async function loadUpgrades() {
+        const upgrades = await fetchAPI('/upgrades');
+        const listDiv = document.getElementById('upgradesList');
+        listDiv.innerHTML = '';
+        for (let up of upgrades) {
+            const div = document.createElement('div');
+            div.className = 'upgrade-item';
+            div.innerHTML = `
+                <div><div class="upgrade-name">${up.name}</div><div class="upgrade-cost">${up.cost} очков</div></div>
+                <button class="buy-btn" data-id="${up.id}">Купить</button>
+            `;
+            listDiv.appendChild(div);
+        }
+        document.querySelectorAll('.buy-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                buyUpgrade(parseInt(btn.dataset.id));
+            });
+        });
+    }
+
+    async function loadLeaderboard() {
+        const data = await fetchAPI('/leaderboard');
+        const listDiv = document.getElementById('leaderboardList');
+        listDiv.innerHTML = '';
+        for (let i=0; i<data.length; i++) {
+            const item = document.createElement('div');
+            item.className = 'leaderboard-item';
+            item.innerHTML = `<span>${i+1}. ${data[i].username}</span><span>${data[i].points} очков</span>`;
+            listDiv.appendChild(item);
+        }
+    }
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const panelId = btn.dataset.panel;
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active-panel'));
+            document.getElementById(`panel-${panelId}`).classList.add('active-panel');
+            if (panelId === 'upgrades') loadUpgrades();
+            if (panelId === 'leaderboard') loadLeaderboard();
+        });
+    });
+
+    document.getElementById('tapArea').addEventListener('click', tap);
+    loadUser();
+</script>
+</body>
+</html>
